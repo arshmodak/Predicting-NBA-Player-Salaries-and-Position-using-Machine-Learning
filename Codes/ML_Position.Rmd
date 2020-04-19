@@ -1,0 +1,697 @@
+# **PREDICTING POSIION USING SUPERVISED AND UNSUPERVISED MACHINE LEARNING: ** #
+
+```{r warning = FALSE}
+
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(gapminder)
+library(gganimate)
+library(gifski)
+library(hrbrthemes)
+library(patchwork)
+library(GGally)
+library(viridis)
+library(plotly)
+library(hablar)
+library(caret)
+library(mlbench)
+library(modelr)
+library(DMwR)
+library(ROSE)
+library(rpart.plot)
+library(factoextra)
+# library(MASS)
+
+```
+
+```{r warning = FALSE}
+
+cleaned_nba <- read_csv("E:\\ARSH\\GitHub\\Data-Management-and-Processing-Project\\datasets\\final data\\cleaned_preprocessed_player_data_nonovrlp.csv")
+
+```
+
+```{r warning = FALSE}
+
+cleaned_nba <- cleaned_nba %>%
+  mutate(Position = as.factor(Position),
+         PlayerGrade = as.factor(PlayerGrade))
+
+#summary(cleaned_nba)
+
+```
+
+# Creating data partitions
+```{r warning = FALSE}
+
+df_ml <- cleaned_nba %>%
+  select(-c(PLAYER, YEAR, index))
+         # OREB, GP, NETRTG, OFFRTG))
+
+names(df_ml)[names(df_ml) == "3PA"] <- "ThreePA"
+names(df_ml)[names(df_ml) == "TS%"] <- "TS_Percent"
+names(df_ml)[names(df_ml) == "AST%"] <- "AST_Percent"
+names(df_ml)[names(df_ml) == "REB%"] <- "REB_Percent"
+names(df_ml)[names(df_ml) == "FG%"] <- "FG_Percent"
+names(df_ml)[names(df_ml) == "AST/TO"] <- "AST_TO"
+
+
+set.seed(1) # reproducibility!
+nba_ml_partitions <- createDataPartition(df_ml$Position,
+                                         p=0.75, list=FALSE)
+
+nba_ml_partitions_train <- df_ml[c(nba_ml_partitions),]  %>%
+  select(-Salary,-PlayerGrade)
+nba_ml_partitions_test <- df_ml[-nba_ml_partitions,] %>%
+  select(-Salary,-PlayerGrade)
+
+
+```
+
+**Under Sampling**
+```{r warning = FALSE}
+
+set.seed(1)
+down_train <- downSample(x = nba_ml_partitions_train[, -ncol(nba_ml_partitions_train)],
+                         y = nba_ml_partitions_train$Position)
+
+table(down_train$Position)  
+
+down_train <- down_train %>%
+  select(-Class)
+
+```
+
+**Over Sampling**
+```{r warning = FALSE}
+
+set.seed(1)
+up_train <- upSample(x = nba_ml_partitions_train[, -ncol(nba_ml_partitions_train)],
+                     y = nba_ml_partitions_train$Position)                         
+table(up_train$Position)
+
+up_train <- up_train %>%
+  select(-Class)
+
+```
+
+## ** I. LOGISTIC REGRESSION **
+
+** Original Data**
+```{r warning = FALSE}
+
+# Multinomial Logistic Regression with 17 most correlated player stats 
+#(with correlation cutoff of 63%), without kfold cv.
+
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+
+multinom_fit_normal <- train(Position ~.,
+                      data = nba_ml_partitions_train,
+                      method = "multinom", trControl = ctrl, 
+                      preProcess = c("scale", "center"),
+                      family = binomial(link="logit"))
+
+
+pred <- predict(multinom_fit_normal, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+importance <- varImp(multinom_fit_normal, scale=FALSE)
+
+multinom_importance <- as.data.frame(importance[[1]]) %>%
+  rownames_to_column(.) %>%
+  mutate(rowname = reorder(rowname, Overall))
+
+multinom_importance %>%
+  ggplot(aes(x = Overall, y = rowname, fill = rowname)) +
+  geom_col(show.legend = FALSE) +
+  theme_bw() +
+  labs(title = "Importance for Multinomial Logistic Regression",
+       x = "Importance",
+       y = "Variables")
+  
+print(importance)
+plot(importance)
+
+```
+
+**Under Sampling:**
+```{r warning = FALSE}
+
+ctrl <- trainControl(method = "repeatedcv", number = 10, repeats = 5)
+
+multinom_fit_under <- train(Position ~.,
+                      data = down_train,
+                      method = "multinom", trControl = ctrl, 
+                      preProcess = c("scale", "center"),
+                      family = binomial(link="logit"))
+
+
+pred <- predict(multinom_fit_under, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+
+```
+
+**Over Sampling:**
+```{r warning = FALSE}
+
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+
+multinom_fit_over <- train(Position ~.,
+                      data = up_train,
+                      method = "multinom", trControl = ctrl, 
+                      preProcess = c("scale", "center"),
+                      family = binomial(link="logit"))
+
+
+pred <- predict(multinom_fit_over, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+
+```
+
+## ** II. DECISION TREES:**
+
+** Original Data**
+```{r warning = FALSE}
+library(rpart.plot)
+
+
+dt_fit_normal <- train(Position ~ ., 
+                data = nba_ml_partitions_train, method = "rpart",
+                parms = list(split = "gini"),
+                trControl= ctrl,
+                tuneLength = 10)
+
+
+
+pred <- predict(dt_fit_normal, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+#prp(dt_fit$finalModel, box.palette = "Reds", tweak = 1.2)
+rpart.plot(dt_fit_normal$finalModel, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+importance <- varImp(dt_fit_normal, scale=FALSE)
+
+dt_importance <- as.data.frame(importance[[1]]) %>%
+  rownames_to_column(.) %>%
+  mutate(rowname = reorder(rowname, Overall))
+
+dt_importance %>%
+  ggplot(aes(x = Overall, y = rowname, fill = rowname)) +
+  geom_col(show.legend = FALSE) +
+  theme_bw() +
+  labs(title = "Importance for Decision Trees",
+       x = "Importance",
+       y = "Variables")
+  
+print(importance)
+plot(importance)
+
+
+```
+
+** Over Sampling**
+```{r warning = FALSE}
+
+dt_fit_over <- train(Position ~ ., 
+                data = up_train, method = "rpart",
+                                   parms = list(split = "information"),
+                                   trControl= ctrl,
+                                   tuneLength = 10)
+
+
+
+pred <- predict(dt_fit_over, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+rpart.plot(dt_fit$finalModel, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+
+```
+
+# Under Sampling
+```{r warning = FALSE}
+
+#install.packages("rpart.plot")
+library(rpart.plot)
+
+
+dt_fit_under <- train(Position ~ ., 
+                data = down_train, method = "rpart",
+                parms = list(split = "gini"),
+                trControl= ctrl,
+                tuneLength = 10)
+
+
+
+pred <- predict(dt_fit_under, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+#prp(dt_fit$finalModel, box.palette = "Reds", tweak = 1.2)
+# rpart.plot(dt_fit$finalModel, box.palette="RdBu", shadow.col="gray", nn=TRUE)
+
+
+```
+
+** III. Support Vector Machines**
+
+# Original Data
+```{r warning = FALSE}
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+# SVMRadial
+set.seed(1)
+
+ctrl_svm <- trainControl(method = "repeatedcv", 
+                         number = 5, 
+                         repeats = 5,
+                         allowParallel = TRUE,
+                         classProbs = TRUE)
+
+svmr_fit_normal <- train(Position ~., 
+                         data = nba_ml_partitions_train, 
+                         method = 'svmRadial',
+                         trControl = ctrl_svm)
+
+pred <- predict(svmr_fit_normal, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+```
+
+**Over Sampling**
+```{r warning = FALSE}
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+# SVMRadial
+set.seed(1)
+
+ctrl_svm <- trainControl(method = "repeatedcv", 
+                         number = 5, 
+                         repeats = 5,
+                         allowParallel = TRUE,
+                         classProbs = TRUE)
+svmr_fit_over <- train(
+  Position ~., data = up_train, method = 'svmRadial',
+  trControl = ctrl_svm)
+
+
+# Plot model accuracy vs different values of Cost
+pred <- predict(svmr_fit_over, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+importance <- varImp(svmr_fit_over, scale=FALSE)
+
+svm_importance <- as.data.frame(importance[[1]]) %>%
+  rownames_to_column(.) %>%
+  gather(Center, Forward, Guard, key = Position, value = Value) %>%
+  mutate(Position = reorder(Position, Value))
+
+svm_importance %>%
+  ggplot(aes(x = Value, y = rowname, fill = rowname)) +
+  geom_col(show.legend = FALSE) +
+  theme_bw() +
+  facet_wrap(~Position, scales = "free") +
+  labs(title = "Importance for SVM",
+       x = "Importance",
+       y = "Variables")
+  
+print(importance)
+plot(importance)
+
+```
+
+**Under Sampling**
+```{r warning = FALSE}
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+# SVMRadial
+set.seed(1)
+
+ctrl_svm <- trainControl(method = "repeatedcv", 
+                         number = 5, 
+                         repeats = 5, 
+                         search = "random",
+                         allowParallel = TRUE,
+                         adaptive = list(min = 5, alpha = 0.05, 
+                                             method = "gls", complete = TRUE),
+                         classProbs = TRUE)
+svmr_fit_down <- train(
+  Position ~., data = down_train, method = 'svmRadial',
+  trControl = ctrl_svm)
+
+  
+# Plot model accuracy vs different values of Cost
+pred <- predict(svmr_fit_down, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+```
+
+
+## ** IV. XGBOOST **
+
+**Original Data**
+```{r}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+xgb_trcontrol = trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 5,
+  search = "random",
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+
+set.seed(0) 
+xgb_model_normal = train(
+  Position ~., data = nba_ml_partitions_train,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+
+pred <- predict(xgb_model_normal, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+```
+
+**Over Sampling**
+```{r}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+xgb_trcontrol = trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 5,
+  search = "random",
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+
+set.seed(0) 
+xgb_model_up = train(
+  Position ~., data = up_train,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+
+pred <- predict(xgb_model_up, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+
+
+xgboost_importance <-  as.data.frame(importance[[1]]) %>%
+  rownames_to_column(.) %>%
+  mutate(rowname = reorder(rowname, Overall))
+  
+ 
+ggplot(xgboost_importance, aes(x = Overall, y = rowname , fill = rowname)) +
+   geom_col(show.legend = FALSE) +
+    theme_bw() +
+    labs(title = "Importance for XGBoost", x = "Importance", y = "Variable" )
+
+```
+
+**Under Sampling**
+```{r}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+
+xgb_trcontrol = trainControl(
+  method = "repeatedcv",
+  number = 5,
+  repeats = 5,
+  search = "random",
+  allowParallel = TRUE,
+  verboseIter = FALSE,
+  returnData = FALSE
+)
+
+xgbGrid <- expand.grid(nrounds = c(100,200),  # this is n_estimators in the python code above
+                       max_depth = c(10, 15, 20, 25),
+                       colsample_bytree = seq(0.5, 0.9, length.out = 5),
+                       ## The values below are default values in the sklearn-api. 
+                       eta = 0.1,
+                       gamma=0,
+                       min_child_weight = 1,
+                       subsample = 1
+                      )
+
+set.seed(0) 
+xgb_model_down = train(
+  Position ~., data = down_train,  
+  trControl = xgb_trcontrol,
+  tuneGrid = xgbGrid,
+  method = "xgbTree"
+)
+
+pred <- predict(xgb_model_down, newdata = nba_ml_partitions_test)
+confusionMatrix(pred, nba_ml_partitions_test$Position)
+```
+
+## ** V. NEURAL NETWORKS **
+
+**Original Data**
+```{r warning = FALSE}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, 
+                     repeats = 5,
+                     allowParallel = TRUE,
+                     summaryFunction = multiClassSummary)
+
+my.grid <- expand.grid(decay = c(0.5,0.1), size = c(5, 6, 7))
+
+nnet_normal <- train(Position ~ ., 
+                      data = nba_ml_partitions_train,
+                      preProcess = c("scale", "center"),
+                      trControl = ctrl, 
+                      algorithm = 'backprop', 
+                      learningrate = 0.25,
+                      method = "nnet", maxit = 1000, tuneGrid = my.grid, trace = F) 
+
+predict <- predict(nnet_normal, newdata = nba_ml_partitions_test)
+confusionMatrix(predict, nba_ml_partitions_test$Position)
+
+
+
+importance <- varImp(nnet_normal, scale=FALSE)
+
+# summarize importance
+print(importance)
+
+nnet_importance <-  as.data.frame(importance[[1]]) %>%
+  rownames_to_column(.) %>%
+  mutate(rowname = reorder(rowname, Overall))
+  
+ 
+ggplot(nnet_importance, aes(x = Overall, y = rowname , fill = rowname)) +
+   geom_col(show.legend = FALSE) +
+    theme_bw() +
+    labs(title = "Importance for Neural Nets", x = "Importance", y = "Variable" )
+# plot importance
+plot(importance)
+
+```
+
+**Over Sampling**
+```{r warning = FALSE}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, 
+                     repeats = 5,
+                     allowParallel = TRUE,
+                     summaryFunction = multiClassSummary)
+
+my.grid <- expand.grid(decay = c(0.5,0.1), size = c(5, 6, 7))
+
+nnet_normal_up <- train(Position ~ ., 
+                      data = up_train,
+                      preProcess = c("scale", "center"),
+                      trControl = ctrl, 
+                      algorithm = 'backprop', 
+                      learningrate = 0.25,
+                      method = "nnet", maxit = 1000, tuneGrid = my.grid, trace = F) 
+
+predict <- predict(nnet_normal_up, newdata = nba_ml_partitions_test)
+confusionMatrix(predict, nba_ml_partitions_test$Position)
+
+
+```
+
+**Under Sampling**
+```{r warning = FALSE}
+
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+ctrl <- trainControl(method = "repeatedcv", 
+                     number = 5, 
+                     repeats = 5,
+                     allowParallel = TRUE,
+                     summaryFunction = multiClassSummary)
+
+my.grid <- expand.grid(decay = c(0.5,0.1), size = c(5, 6, 7))
+
+nnet_normal_up <- train(Position ~ ., 
+                      data = down_train,
+                      preProcess = c("scale", "center"),
+                      trControl = ctrl, 
+                      algorithm = 'backprop', 
+                      learningrate = 0.25,
+                      method = "nnet", maxit = 1000, tuneGrid = my.grid, trace = F) 
+
+predict <- predict(nnet_normal_up, newdata = nba_ml_partitions_test)
+confusionMatrix(predict, nba_ml_partitions_test$Position)
+
+
+```
+
+
+
+## UNSUPERVISED MACHINE LEARNING: (K-Means Clustering)
+
+```{r warning = FALSE}
+
+library(cluster)    # clustering algorithms
+library(factoextra) # clustering algorithms & visualization
+
+```
+
+
+**Under Sampling**
+```{r warning = FALSE}
+
+kmeans_data <- nba_ml_partitions_train
+set.seed(1)
+down_train <- downSample(x = kmeans_data[, -ncol(kmeans_data)],
+                         y = kmeans_data$Position)
+
+table(down_train$Position)  
+
+down_train <- down_train %>%
+  select(-Class)
+
+```
+
+**Over Sampling**
+```{r warning = FALSE}
+
+set.seed(1)
+up_train <- upSample(x = kmeans_data[, -ncol(kmeans_data)],
+                     y = kmeans_data$Position)
+table(up_train$Position)
+
+up_train <- up_train %>%
+  select(-Class)
+
+```
+
+
+```{r warning = FALSE}
+
+df_mlx <- kmeans_data
+numeric_df_ml <- df_mlx[,sapply(df_mlx, is.numeric)]
+numeric_down_train <- down_train[,sapply(down_train, is.numeric)]
+numeric_up_train <- up_train[,sapply(up_train, is.numeric)]
+
+allkmeansdata <- numeric_df_ml
+# %>%
+#   sample_n(500)
+
+kmeansdata <- allkmeansdata
+
+
+```
+
+
+```{r warning = FALSE}
+
+set.seed(1)
+k3 <- kmeans(kmeansdata, centers = 3, nstart = 25)
+k3d <- kmeans(numeric_down_train, centers = 3, nstart = 25)
+k3u <- kmeans(numeric_up_train, centers = 3, nstart = 25)
+
+k5 <- kmeans(kmeansdata, centers = 5, nstart = 25)
+k5d <- kmeans(numeric_down_train, centers = 5, nstart = 25)
+k5u <- kmeans(numeric_up_train, centers = 5, nstart = 25)
+
+fviz_cluster(k3, data = kmeansdata, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+fviz_cluster(k3d, data = numeric_down_train, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+fviz_cluster(k3u, data = numeric_up_train, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+
+fviz_cluster(k5, data = kmeansdata, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+fviz_cluster(k5d, data = numeric_down_train, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+fviz_cluster(k5u, data = numeric_up_train, ellipse.type = "norm", geom = "point", pointsize = 0.01)
+
+
+set.seed(1)
+
+fviz_nbclust(kmeansdata, kmeans, method = "wss")
+fviz_nbclust(kmeansdata, kmeans, method = "silhouette")
+
+fviz_nbclust(numeric_down_train, kmeans, method = "wss")
+fviz_nbclust(numeric_up_train, kmeans, method = "silhouette")
+
+fviz_nbclust(numeric_down_train, kmeans, method = "wss")
+fviz_nbclust(numeric_up_train, kmeans, method = "silhouette")
+
+
+```

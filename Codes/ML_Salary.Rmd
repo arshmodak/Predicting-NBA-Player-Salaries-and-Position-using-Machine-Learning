@@ -1,0 +1,479 @@
+
+# **LINEAR REGRESSION TO PREDICT SALARY**
+
+```{r warning = FALSE}
+
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(caret)
+library(mlbench)
+library(modelr)
+
+```
+
+# K-fold CV Function:
+```{r warning = FALSE}
+
+set.seed(1)
+
+kfoldcv <- function(formula, data, k){
+  cv_df <- crossv_kfold(data, k)
+  cv_df <- cv_df %>%
+    mutate(fit = map(train,  ~ lm(formula, data = .))) %>%
+    mutate(rmse_train = map2_dbl(fit, train, rmse),
+           rmse_test = map2_dbl(fit, test, rmse)) %>%
+    select(rmse_train, rmse_test)
+  
+  meanrmse_train <- mean(cv_df[["rmse_train"]])
+  meanrmse_test <- mean(cv_df[["rmse_test"]])
+  
+  print(paste("Mean Root Mean Square Error of Train (k = 5):", meanrmse_train))
+  print(paste("Mean Root Mean Square Error of Test (k = 5):", meanrmse_test))
+  
+  return(meanrmse_test)
+}
+```
+
+
+# Data Transformation according to Linearity:
+```{r warning = FALSE}
+
+df_ml_tr <- df_ml %>%
+  mutate(FP = FP*0.5,
+         REB = REB*0.5,
+         GP = GP^0.5,
+         FGA = FGA^0.5,
+         DREB = DREB^0.5,
+         ThreePA = ThreePA^0.5,
+         AST = AST^0.5,
+         FGM = FGM^0.5,
+         PTS = PTS^0.5,
+         FTA = FTA^0.5,
+         MIN = MIN^0.5,
+         TOV = TOV^0.5,
+         FTM = FTM^0.5,
+         OREB = OREB^0.5)
+
+```
+
+
+# Checking linear relationship between response and predictor variables:
+```{r warning = FALSE}
+
+df_ml_tr %>%
+  ggplot(aes(x = AGE, y = log(Salary))) +
+  geom_point(color = "pink",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs AGE",
+       x = "AGE", 
+       y = "Log ofSalary") +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = FP, y = log(Salary))) +
+  geom_point(color = "red",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs Fantasy Points",
+       x = "Fantasy Points", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = GP, y = log(Salary))) +
+  geom_point(color = "lightblue",  alpha = 3/10, position = "jitter") +
+  geom_smooth() +
+  labs(title = "Log of Salary vs Game Points",
+       x = "Game Points", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = DREB, y = log(Salary))) +
+  geom_point(color = "green",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs Defensive Rebounds",
+       x = "Defensive Rebounds", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = ThreePA, y = log(Salary))) +
+  geom_point(color = "purple",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs Three Points Attempted",
+       x = "Three Points Attempted", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = PTS, y = log(Salary))) +
+  geom_point(color = "cyan",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs Points",
+       x = "Points", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+df_ml_tr %>%
+  ggplot(aes(x = MIN, y = log(Salary))) +
+  geom_point(color = "orange",  alpha = 3/10, position = "jitter") +
+  geom_smooth(method = "lm") +
+  labs(title = "Log of Salary vs Minutes Played",
+       x = "Minutes Played", 
+       y = "Log of Salary")  +
+  theme_classic()
+
+```
+
+
+# **Stepwise Model Selection**
+```{r warning = FALSE}
+
+set.seed(1)
+p1rmse <- kfoldcv(log(Salary) ~ FP, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ GP, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ PTS, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ AGE, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ DREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ AST, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ ThreePA, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + GP, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + PTS, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + MIN, data = df_ml_tr, 5)
+p2rmse <- kfoldcv(log(Salary) ~ FP + AGE, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + DREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AST, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + ThreePA, data = df_ml_tr, 5)
+
+
+```
+
+```{r warning = FALSE}
+
+p3rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + PTS, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + DREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + AST, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + ThreePA, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + PTS, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + OREB, data = df_ml_tr, 5)
+p4rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + AST, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + ThreePA, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+p5rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + AST, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA, data = df_ml_tr, 5)
+
+
+```
+
+
+```{r warning = FALSE}
+
+p6rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + ThreePA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + PTS + AST, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + FGM, data = df_ml_tr, 5)
+p7rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + AST, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + FGM, data = df_ml_tr, 5)
+p8rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + TOV, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + MIN + AST, data = df_ml_tr, 5)
+
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + OREB, data = df_ml_tr, 5)
+p9rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + AST, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FTM, data = df_ml_tr, 5)
+p10rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + AST, data = df_ml_tr, 5)
+
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + FTM, data = df_ml_tr, 5)
+p11rmse <- kfoldcv(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + FTA, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + AST, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + FTA, data = df_ml_tr, 5)
+p12rmse <-  kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+p13rmse <-kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST + FGM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST + FTM, data = df_ml_tr, 5)
+kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST + FTA, data = df_ml_tr, 5)
+
+```
+
+```{r warning = FALSE}
+
+p14rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST + FGM + FTA, data = df_ml_tr, 5)
+
+p15rmse <- kfoldcv(log(Salary) ~ FP + AGE + GP + DREB + ThreePA + PTS + TOV + MIN + REB + FGA + OREB + AST + FGM + FTM + FTA, data = df_ml_tr, 5)
+
+```
+
+
+# Stepwise RMSE Curve:
+```{r warning = FALSE}
+
+set.seed(1)
+
+
+rmse_df <- tibble(nvar = 1:15,
+                  rmse = c(p1rmse,
+                           p2rmse,
+                           p3rmse,
+                           p4rmse,
+                           p5rmse,
+                           p6rmse,
+                           p7rmse,
+                           p8rmse,
+                           p9rmse,
+                           p10rmse,
+                           p11rmse,
+                           p12rmse,
+                           p13rmse,
+                           p14rmse,
+                           p15rmse))
+
+
+ggplot(rmse_df) + geom_line(aes(x=nvar, y=rmse)) +
+  labs(title = "Number of Variables vs RMSE",
+       x = "Number of Variables",
+       y = "Root Mean Square Error (RMSE)")  +
+  theme_classic()
+
+
+```
+
+# Residual Plots
+```{r warning = FALSE}
+
+withresid %>%
+  ggplot(aes(x  = AGE, y = resid)) +
+  geom_point(color = "pink",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs AGE",
+       x = "AGE",
+       y = "Residuals")  +
+  theme_classic()
+
+
+withresid %>%
+  ggplot(aes(x  = DREB, y = resid)) +
+  geom_point(color = "green",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Defensive Rebounds",
+       x = "Defensive Rebounds",
+       y = "Residuals")  +
+  theme_classic()
+
+
+withresid %>%
+  ggplot(aes(x  = PTS, y = resid)) +
+  geom_point(color = "cyan",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Points",
+       x = "Points",
+       y = "Residuals")  +
+  theme_classic()
+
+
+withresid %>%
+  ggplot(aes(x  = FP, y = resid)) +
+  geom_point(color = "red",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Fantasy Points",
+       x = "Fantasy Points",
+       y = "Residuals")  +
+  theme_classic()
+
+
+withresid %>%
+  ggplot(aes(x  = ThreePA, y = resid)) +
+  geom_point(color = "purple",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Three Points Attempted",
+       x = "Three Points Attempted",
+       y = "Residuals")  +
+  theme_classic()
+
+withresid %>%
+  ggplot(aes(x  = GP, y = resid)) +
+  geom_point(color = "lightblue",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Game Points",
+       x = "Game Points",
+       y = "Residuals")  +
+  theme_classic()
+
+withresid %>%
+  ggplot(aes(x  = MIN, y = resid)) +
+  geom_point(color = "orange",  alpha = 3/10, position = "jitter") +
+  labs(title = "Residuals vs Minutes Played",
+       x = "Minutes Played",
+       y = "Residuals")  +
+  theme_classic()
+
+```
+
+
+# Fitting a Linear Model for Salary
+```{r warning = FALSE}
+ 
+ 
+#set.seed(1)   reproducibility!
+lm_partitions <- createDataPartition(df_ml_tr$Salary,
+                                         p=0.75, list=FALSE)
+
+lm_train <- df_ml_tr[lm_partitions,]
+lm_test <- df_ml_tr[-lm_partitions,]
+ 
+ 
+ctrl <- trainControl(method = "repeatedcv", number = 5, repeats = 5)
+ 
+lm_fit <- train(log(Salary) ~  FP + AGE + GP + DREB + ThreePA + PTS + MIN,
+                        data = lm_train,
+                        method = "lm", trControl = ctrl)
+
+print("SUMMARY:")
+summary(lm_fit)
+print("RMSE:")
+rmse(lm_fit, lm_test)
+rmse <- rmse(lm_fit, lm_test)
+print("NORMALIZED RMSE:")
+nrmse <- rmse/(max(log(lm_test$Salary))-min(log(lm_test$Salary)))*100
+nrmse
+pred <- predict(lm_fit, newdata = lm_test)
+ 
+```
+ 
+# Predicted Values vs Actual Values:
+```{r warning = FALSE}
+ 
+preddf <- cbind(lm_test$Salary, exp(pred))
+ 
+preddf1 <- as_tibble(preddf)
+ggplot(preddf1, aes(x = log(V1), y = log(V2))) +
+  geom_point() +
+  geom_smooth()
+
+plot(x = lm_test$Salary, y = exp(pred))
+
+```
+
+
+
+
+
+
+
+

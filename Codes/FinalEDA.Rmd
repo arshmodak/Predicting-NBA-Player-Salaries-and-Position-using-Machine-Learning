@@ -1,0 +1,540 @@
+
+# Importing Necessary Packages:
+
+```{r warning = FALSE}
+library(dplyr)
+library(readr)
+library(tidyr)
+library(tidyverse)
+library(ggplot2)
+library(gapminder)
+library(gganimate)
+library(gifski)
+library(hrbrthemes)
+library(patchwork)
+library(GGally)
+library(viridis)
+library(plotly)
+# library(MASS)
+library(networkD3)
+# library(circlize)
+
+```
+
+# EDA: PLAYER STATS
+
+```{r warning = FALSE}
+
+setwd("E:/ARSH/NEU/Spring 2020/DS5110/Projects/Data-Management-and-Processing-Project/datasets/final data")
+allplayerdata <- read_csv("cleaned_preprocessed_player_data.csv") %>%
+  select(-c(index, PlayerGrade)) 
+
+
+# allnbadata <- allnbadata %>%
+#   mutate(Salary = gsub("\\$", "", Salary),
+#          Salary = as.numeric(gsub("\\,", "", Salary)),
+#          InflatedSalary = gsub("\\$", "", InflatedSalary),
+#          InflatedSalary = as.numeric(gsub("\\,", "", InflatedSalary)),
+#          Position = as.factor(Position)) %>%
+#   select(-TEAM.y)
+
+```
+
+
+
+### EDA w.r.t POSITION:
+
+```{r}
+
+plotCols <- function(data){
+  char_cols <- data[,sapply(data, class) == "character"]
+  non_char_cols <- data[,sapply(data, class) != "character"]
+  
+  count = 0
+  for(i in char_cols){
+    count = count + 1
+    g <- ggplot(data, aes(i, fill = Position)) + geom_bar(position = 'dodge') + 
+      scale_fill_viridis(discrete = TRUE) +
+          theme_ipsum() +
+          transition_time(YEAR) +
+        ease_aes('linear') +
+          theme(
+            legend.position="none",
+            plot.title = element_text(size=11)
+          )  +
+          labs(title =  'Year: {frame_time}' ,x = names(char_cols[count]), y = "Count")
+      theme(axis.text.x = element_text(angle = 90))
+      
+      
+    anim_save(filename = paste(count,"categorical.gif"), animation = g, path = "animations")
+  }
+  
+ 
+  return (non_char_cols)
+}
+
+```
+
+
+# Plotting Animated Boxplots:
+```{r warning=FALSE}
+
+library(ggplot2)
+library(gganimate)
+library(lubridate)
+
+non_char_cols <- plotCols(allplayerdata)
+non_char_cols <- non_char_cols %>%
+  mutate(YEAR = year(as.Date(as.character(allplayerdata$YEAR), format = "%Y")))
+
+colnames_ncc <- colnames(non_char_cols)
+count = 0
+
+  for(i in non_char_cols){
+      count = count + 1
+      g <- allplayerdata %>%
+          ggplot(aes(x = as.factor(Position), y = i , fill = Position)) +
+          geom_boxplot() +
+          scale_fill_viridis(discrete = TRUE) +
+          geom_jitter(color="grey", size=0.2, alpha = 0.2 ) +
+          theme_ipsum() +
+          transition_time(YEAR) +
+        ease_aes('linear') +
+          theme(
+            legend.position="none",
+            plot.title = element_text(size=11)
+          )  +
+          labs(title =  'Year: {frame_time}' ,x = "Position", y = colnames_ncc[count])
+          
+    anim_save(filename = paste(count,".gif"), animation = g, path = "animations")
+  }
+
+
+```
+
+# Sankey Network Diagram:
+```{r}
+
+data_long <- allplayerdata %>%
+  group_by(Position) %>%
+  select(Position,`OREB`,`REB`,`3PA`,`TOV`,`FTM`,`AST%`) %>%
+  gather(key = 'key', value = 'value', -Position) %>%
+  sample_n(500) %>%
+  ungroup()
+
+colnames(data_long) <- c("source", "target", "value") 
+data_long$target <- paste(data_long$target, " ", sep="")
+
+# From these flows we need to create a node data frame: it lists every entities involved in the flow
+nodes <- data.frame(name=c(as.character(data_long$source), as.character(data_long$target)) %>% unique())
+
+data_long$IDsource=match(data_long$source, nodes$name)-1 
+data_long$IDtarget=match(data_long$target, nodes$name)-1
+
+ColourScal ='d3.scaleOrdinal() .range(["#FDE725FF","#B4DE2CFF","#6DCD59FF","#35B779FF","#1F9E89FF","#26828EFF","#31688EFF","#3E4A89FF","#482878FF","#440154FF"])'
+
+sankeyNetwork(Links = data_long, Nodes = nodes,
+              Source = "IDsource", Target = "IDtarget",
+              Value = "value", NodeID = "name", 
+              sinksRight=FALSE, colourScale=ColourScal, nodeWidth=40, fontSize=13, nodePadding=20)
+
+
+```
+
+
+### Types of Rebounds over Time (Stacked)
+```{r warning = FALSE}
+
+allplayerdata %>% 
+  select(YEAR, REB, DREB, OREB) %>% 
+  group_by(YEAR) %>%
+  summarise(rebcount = mean(REB),
+            offcount = mean(OREB),
+            pdefcount = mean(DREB)) %>%
+  gather(rebtype, count, -YEAR) %>% 
+  ggplot(aes(x = YEAR, y = count, fill = rebtype)) +
+  geom_area(aes(ymin = 0, ymax = count, position = "stacked"), alpha = 0.5) +
+  scale_fill_discrete(name = "Rebounds",
+                      labels = c("Defensive", "Offensive", "Total")) +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  labs(title = "Types of Rebounds over Time (Stacked)",
+       x = "Year",
+       y = "Mean")
+
+```
+
+
+### Types of Points
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `3PA`, `3PM`, FTM, FGM, FGA, FGM, FTA) %>%
+  group_by(YEAR) %>%
+  summarise(tpacount = mean(`3PA`),
+            tpmcount = mean(`3PM`),
+            ftacount = mean(FTA),
+            ftmcount = mean(FTM),
+            fgacount = mean(FGA),
+            fgmcount = mean(FGM)) %>%
+  gather(ptstype, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = ptstype)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Types of Points",
+                      labels = c("FGA", "FGM", "FTA", "FTM",
+                                 "TPA", "TPM")) +
+  labs(title = "Type of Points",
+       x = "Year",
+       y = "Count")
+       
+```
+
+### Three Pointers Made vs Attempted (Stacked)
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `3PA`, `3PM`) %>%
+  group_by(YEAR) %>%
+  summarise(tpacount = mean(`3PA`),
+            atpmcount = mean(`3PM`)) %>%
+  gather(threepointers, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = threepointers)) +
+  geom_area(aes(ymin = 0, ymax = count), alpha = 0.4, position = "stack") +
+  scale_fill_discrete(name = "Three Pointers",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Three Pointers Made vs Attempted (Stacked)",
+       x = "Year",
+       y = "Mean") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+```
+
+# "Free Throws Made vs Attempted"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FTM`, `FTA`) %>%
+  group_by(YEAR) %>%
+  summarise(ftmcount = mean(`FTM`),
+            ftacount = mean(`FTA`)) %>%
+  gather(freethrows, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = freethrows)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Free Throws",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Free Throws Made vs Attempted",
+       x = "Year",
+       y = "Count")
+
+```
+
+### "Field Goals Made vs Attempted"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FGM`, `FGA`) %>%
+  group_by(YEAR) %>%
+  summarise(fgmcount = mean(`FGM`),
+            fgacount = mean(`FGA`)) %>%
+  gather(fieldgoals, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = fieldgoals)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Field Goals",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Field Goals Made vs Attempted",
+       x = "Year",
+       y = "Count")
+
+```
+
+
+# Player Stats and Salart over Time:
+```{r warning = FALSE}
+
+allplayerdata %>% 
+  select(YEAR, MIN, PTS, AST, STL, BLK, TOV, PF, FP, `3PA`, Salary) %>% 
+  group_by(YEAR) %>%
+  summarise(MIN = mean(MIN),
+            PTS = mean(PTS),
+            PF = mean(PF),
+            TPA = mean(`3PA`),
+            Salary = mean(Salary, na.rm = TRUE)) %>%
+  gather(pstats, value, -YEAR) %>% 
+  ggplot(aes(x = YEAR, y = value, color = pstats)) +
+  geom_line(show.legend = FALSE) +
+  facet_grid(pstats ~ ., scales = "free") +
+  theme_classic() +
+  labs(title = "Player Stats over Time",
+       x = "Year",
+       y = "Mean")
+
+```
+
+
+# "Game Points over Time (Stacked)"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FP`, `3PM`, PTS, FGM, FTM) %>%
+  group_by(YEAR) %>%
+  summarise(zptscount = mean(PTS),
+            fgmcount = mean(`FGM`),
+            atpmcount = mean(`3PM`),
+            bftmcount = mean(FTM)) %>%
+  gather(points, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = points, position = "stack")) +
+  geom_area(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Points",
+                      labels = c("Field Goals Made",
+                                 "Free Throws Made",
+                                 "Three Pointers Made",
+                                 "Points Scored")) +
+  labs(title = "Game Points over Time (Stacked)",
+       x = "Year",
+       y = "Mean") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+```
+
+
+
+### Types of Rebounds over Time (Stacked)
+```{r warning = FALSE}
+
+allplayerdata %>% 
+  select(YEAR, REB, DREB, OREB) %>% 
+  group_by(YEAR) %>%
+  summarise(rebcount = mean(REB),
+            offcount = mean(OREB),
+            pdefcount = mean(DREB)) %>%
+  gather(rebtype, count, -YEAR) %>% 
+  ggplot(aes(x = YEAR, y = count, fill = rebtype)) +
+  geom_area(aes(ymin = 0, ymax = count, position = "stacked"), alpha = 0.5) +
+  scale_fill_discrete(name = "Rebounds",
+                      labels = c("Defensive", "Offensive", "Total")) +
+  theme_classic() +
+  theme(legend.position = "bottom") +
+  labs(title = "Types of Rebounds over Time (Stacked)",
+       x = "Year",
+       y = "Mean")
+
+```
+
+
+### Types of Points
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `3PA`, `3PM`, FTM, FGM, FGA, FGM, FTA) %>%
+  group_by(YEAR) %>%
+  summarise(tpacount = mean(`3PA`),
+            tpmcount = mean(`3PM`),
+            ftacount = mean(FTA),
+            ftmcount = mean(FTM),
+            fgacount = mean(FGA),
+            fgmcount = mean(FGM)) %>%
+  gather(ptstype, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = ptstype)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Types of Points",
+                      labels = c("FGA", "FGM", "FTA", "FTM",
+                                 "TPA", "TPM")) +
+  labs(title = "Type of Points",
+       x = "Year",
+       y = "Count")
+       
+```
+
+
+### Three Pointers Made vs Attempted (Stacked)
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `3PA`, `3PM`) %>%
+  group_by(YEAR) %>%
+  summarise(tpacount = mean(`3PA`),
+            atpmcount = mean(`3PM`)) %>%
+  gather(threepointers, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = threepointers)) +
+  geom_area(aes(ymin = 0, ymax = count), alpha = 0.4, position = "stack") +
+  scale_fill_discrete(name = "Three Pointers",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Three Pointers Made vs Attempted (Stacked)",
+       x = "Year",
+       y = "Mean") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+```
+
+# "Free Throws Made vs Attempted"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FTM`, `FTA`) %>%
+  group_by(YEAR) %>%
+  summarise(ftmcount = mean(`FTM`),
+            ftacount = mean(`FTA`)) %>%
+  gather(freethrows, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = freethrows)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Free Throws",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Free Throws Made vs Attempted",
+       x = "Year",
+       y = "Count")
+
+```
+
+### "Field Goals Made vs Attempted"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FGM`, `FGA`) %>%
+  group_by(YEAR) %>%
+  summarise(fgmcount = mean(`FGM`),
+            fgacount = mean(`FGA`)) %>%
+  gather(fieldgoals, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = fieldgoals)) +
+  geom_ribbon(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Field Goals",
+                      labels = c("Attempted","Made")) +
+  labs(title = "Field Goals Made vs Attempted",
+       x = "Year",
+       y = "Count")
+
+```
+
+
+# Player Stats and Salart over Time:
+```{r warning = FALSE}
+
+allplayerdata %>% 
+  select(YEAR, MIN, PTS, AST, STL, BLK, TOV, PF, FP, `3PA`, Salary) %>% 
+  group_by(YEAR) %>%
+  summarise(MIN = mean(MIN),
+            PTS = mean(PTS),
+            PF = mean(PF),
+            TPA = mean(`3PA`),
+            Salary = mean(Salary, na.rm = TRUE)) %>%
+  gather(pstats, value, -YEAR) %>% 
+  ggplot(aes(x = YEAR, y = value, color = pstats)) +
+  geom_line(show.legend = FALSE) +
+  facet_grid(pstats ~ ., scales = "free") +
+  theme_classic() +
+  labs(title = "Player Stats over Time",
+       x = "Year",
+       y = "Mean")
+
+```
+
+
+# "Game Points over Time (Stacked)"
+```{r warning = FALSE}
+
+allplayerdata %>%
+  select(YEAR, `FP`, `3PM`, PTS, FGM, FTM) %>%
+  group_by(YEAR) %>%
+  summarise(zptscount = mean(PTS),
+            fgmcount = mean(`FGM`),
+            atpmcount = mean(`3PM`),
+            bftmcount = mean(FTM)) %>%
+  gather(points, count, -YEAR) %>%
+  ggplot(aes(x = YEAR, y = count, fill = points, position = "stack")) +
+  geom_area(aes(ymin = 0, ymax = count), alpha = 0.4) +
+  scale_fill_discrete(name = "Points",
+                      labels = c("Field Goals Made",
+                                 "Free Throws Made",
+                                 "Three Pointers Made",
+                                 "Points Scored")) +
+  labs(title = "Game Points over Time (Stacked)",
+       x = "Year",
+       y = "Mean") +
+  theme_classic() +
+  theme(legend.position = "bottom")
+
+```
+
+```{r}
+
+setwd("E:/ARSH/GitHub/Data-Management-and-Processing-Project/datasets/final data")
+
+player_data <- read_csv("cleaned_nba_player_data.csv")
+
+nba_data <- read_csv("cleaned_nba_player_team_data.csv")
+
+team_stats <- read_csv("team_stats_viz.csv")
+
+```
+
+```{r warning = FALSE}
+
+target2 <- c("WAS", "DAL", "UTA", "POR", "TOR", "MIA") # teams with top 3P% 
+
+
+# Salary Over the years 
+team_salary_yrs <- nba_data %>%
+  filter(TEAM %in% target2) %>%
+  group_by(YEAR, TEAM) %>%
+  summarise(total_salary = sum(Salary, na.rm = T), win_perct = mean(`team_WIN%`))
+
+
+team_salary_yrs_plot <- ggplot(data = team_salary_yrs, mapping = aes(x=YEAR,y=total_salary)) + 
+  geom_point(aes(color = TEAM, size = win_perct, alpha =1/10)) + geom_smooth() + 
+  theme(title = element_text(color = "Black"), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  ggtitle("Teams Salary Improvement") +
+  xlab("YEAR") + ylab("Team Salary") 
+team_salary_yrs_plot
+
+```
+
+```{r warning = FALSE}
+
+
+###### 3PM over years Vs Salary
+team_win_yrs <- nba_data %>%
+  filter(TEAM %in% target2) %>%
+  group_by(YEAR, TEAM) %>%
+  summarise(win_perct = mean(`team_WIN%`), total_3pm = sum(team_3PM, na.rm = T))
+
+team_win_salary_yrs_plot <- ggplot(data = team_win_yrs, mapping = aes(x=YEAR, y=total_3pm)) + 
+  geom_point(aes(color = TEAM, size = win_perct, alpha =1/10)) + geom_smooth() + 
+  theme(title = element_text(color = "Black"), plot.title = element_text(hjust = 0.5)) +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  ggtitle("3 Pointer Along the Years") +
+  xlab("YEAR") + ylab("3 Pointer Field Goals Made")
+team_win_salary_yrs_plot
+
+```
+# TEAMS SALARY VS. OTHER FEATURES
+```{r warning = FALSE}
+
+top_bottom_teams_salary_3PA <- ggplot(data = team_stats, mapping = aes(x=team_3PA,y=Salary)) + 
+  geom_point(aes(color = TEAM), show.legend = F)  + geom_smooth()+ ylab("Salary") + xlab("3PA") + ggtitle("Teams 3 point Attempt Vs. Salary") + theme(legend.position = "bottom")
+top_bottom_teams_salary_3PA
+
+
+top_bottom_teams_salary_FGM <- ggplot(data = team_stats, mapping = aes(x=team_FGM, y = Salary)) + geom_point(aes(color = TEAM), show.legend = F) + geom_smooth()+ ylab("Salary") + ggtitle("Teams Field Goals Made Vs. Salary") + xlab("FGM")
+top_bottom_teams_salary_FGM
+
+
+top_bottom_teams_salary_PTS <- ggplot(data = team_stats, mapping = aes(x=team_PTS, y = Salary)) + geom_point(aes(color = TEAM), show.legend = F) + geom_smooth() + ylab("Salary") + xlab("Teams Points") + ggtitle("Teams Points Vs. Salary")
+top_bottom_teams_salary_PTS
+
+
+top_bottom_teams_salary_OREB <- ggplot(data = team_stats, mapping = aes(x=team_OREB, y = Salary)) + geom_point(aes(color = TEAM), show.legend = F) + geom_smooth() + ylab("Salary") + xlab("Teams OREB") + ggtitle("Teams Offensive Rebounds Vs. Salary")
+top_bottom_teams_salary_OREB
+
+
+top_bottom_teams_salary_DREB <- ggplot(data = team_stats, mapping = aes(x=team_DREB, y = Salary)) + geom_point(aes(color = TEAM), show.legend = F) + geom_smooth() + ylab("Salary") + xlab("Teams DREB") + ggtitle("Teams Defensive Rebounds Vs. Salary")
+top_bottom_teams_salary_DREB
+
+
+top_bottom_teams_salary_PF <- ggplot(data = team_stats, mapping = aes(x=team_PF, y = Salary)) + geom_point(aes(color = TEAM), show.legend = F) + geom_smooth()+ ylab("Salary") + xlab("Teams Fouls") + ggtitle("Teams Fouls Vs. Salary")
+top_bottom_teams_salary_PF
+
+```
+

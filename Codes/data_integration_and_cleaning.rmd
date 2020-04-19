@@ -1,0 +1,108 @@
+
+```{r warning = FALSE}
+
+library(readr)
+library(tidyverse)
+library(dplyr)
+library(stringr)
+
+```
+
+# Importing Datasets:
+```{r warning = FALSE}
+
+salary_dataset <- read_csv("player_salary.csv")
+player_stats_c <- read_csv("player_stats_C.csv")
+player_stats_f <- read_csv("player_stats_F.csv")
+player_stats_g <- read_csv("player_stats_G.csv")
+team_stats<- read_csv("team_stats.csv")
+team_stats_adv<- read_csv("team_stats_adv.csv")
+player_stats_adv_c <- read_csv("player_stats_adv_C.csv")
+player_stats_adv_f <- read_csv("player_stats_adv_F.csv")
+player_stats_adv_g <- read_csv("player_stats_adv_G.csv")
+
+```
+
+# Combining Data Sets and Recoding Values:
+```{r warning = FALSE}
+
+player_stats <- rbind(mutate(player_stats_c, Position = "Center"), 
+                      mutate(player_stats_f, Position = "Forward"),  
+                      mutate(player_stats_g, Position = "Guard"))
+
+player_stats_adv <- rbind( mutate(player_stats_adv_c, Position = "Center"), 
+                           mutate(player_stats_adv_f, Position = "Forward"),  
+                           mutate(player_stats_adv_g, Position = "Guard"))
+
+team_stats <- team_stats %>%
+  mutate(TEAM = recode(TEAM,
+                       "Charlotte Bobcats" = "Charlotte Hornets",
+                       "New Orleans/Oklahoma City Hornets" = "New Orleans Hornets",
+                       "Washington Bullets" = "Washington Wizards",
+                       "New Orleans Hornets" = "New Orleans Pelicans",
+                       "New Jersey Nets" = "Brooklyn Nets",
+                       "Seattle SuperSonics" = "Oklahoma City Thunder",
+                       "Vancouver Grizzlies" = "Los Angeles Clippers",
+                       "LA Clippers" = "Los Angeles Clippers"))
+
+team_stats_adv<- team_stats_adv %>%
+  mutate(TEAM = recode(TEAM,
+                       "Charlotte Bobcats" = "Charlotte Hornets",
+                       "New Orleans/Oklahoma City Hornets" = "New Orleans Hornets",
+                       "Washington Bullets" = "Washington Wizards",
+                       "New Orleans Hornets" = "New Orleans Pelicans",
+                       "New Jersey Nets" = "Brooklyn Nets",
+                       "Seattle SuperSonics" = "Oklahoma City Thunder",
+                       "Vancouver Grizzlies" = "Los Angeles Clippers",
+                       "LA Clippers" = "Los Angeles Clippers"))
+
+```
+
+# Joining Player and Team Data 
+```{r warning = FALSE}
+
+all_player_stats <- player_stats %>%
+  left_join(salary_dataset,by = c("PLAYER"="Player Name" , "YEAR"="Year"))
+
+smalldf <- player_stats_adv %>%
+  select(PLAYER, TEAM, YEAR, `DREB%`, PACE, PIE)
+
+all_player_stats <- all_player_stats %>%
+  left_join(smalldf, by = c("PLAYER"="PLAYER", "TEAM" = "TEAM", "YEAR" = "YEAR")) %>%
+  distinct()
+
+smalldf2 <- team_stats_adv %>%
+  select(TEAM, YEAR, PACE)
+
+all_team_stats<- smalldf2 %>%
+  left_join(team_stats, by = c("TEAM" = "TEAM", "YEAR" = "YEAR")) %>%
+  distinct()
+
+```
+
+# Adding "team_" in front of team stats:
+```{r warning = FALSE}
+
+# Changing Team Column Names:
+team_colnames <- colnames(all_team_stats)
+
+new_team_colnames = c()
+for(col in team_colnames){
+  x <- str_replace(paste("team_", col), " ", "")
+  new_team_colnames <- append(new_team_colnames, x)
+}
+
+names(all_team_stats) <- new_team_colnames
+names(all_team_stats)[1] <- "TEAM"
+names(all_team_stats)[30] <- "team_abbr"
+
+write_csv(team_stats,"all_team_stats_latest.csv")
+
+player_team_stats <- all_player_stats %>%
+  left_join(all_team_stats, by = c("TEAM"="team_abbr" , "YEAR"="team_YEAR")) %>%
+  select(-TEAM.y) %>%
+  distinct()
+
+write_csv(player_team_stats,"player_team_stats.csv")
+
+```

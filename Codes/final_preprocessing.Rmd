@@ -1,0 +1,269 @@
+---
+title: "Untitled"
+author: "omkar waghmare"
+date: "10/04/2020"
+output: pdf_document
+---
+
+```{r}
+library(modelr)
+library(mlbench)
+library(caret)
+library(tidyr)
+library(tidyverse)
+library(readr)
+library(dplyr)
+library(hablar)
+library(RANN)
+library(missForest)
+library(corrplot)
+library(rlist)
+```
+
+#### Improting datasets
+
+```{r}
+complete_player_stats <- read_csv("cleaned_nba_player_data.csv") 
+complete_player_team_stats <- read_csv("cleaned_nba_player_team_data.csv") 
+
+```
+
+## PREPROCESSING
+
+#### Dropping near-zero variance variables
+
+```{r}
+# complete_player_stats1 <- complete_player_stats 
+
+dim(complete_player_stats)
+colnames(complete_player_stats)
+# no need to one-hot encode position as position doesnot vary much with respect to poistion
+# TD3 dropped because near-zero variance variable
+nzv <- nearZeroVar(complete_player_stats)
+pre_processing_data <- complete_player_stats[, -nzv] %>%
+  mutate(index = 1:nrow(complete_player_stats))
+
+dim(pre_processing_data)
+colnames(pre_processing_data)
+```
+
+#### Imputing the missing data
+```{r}
+library(doParallel)
+registerDoParallel(3)
+getDoParWorkers()
+
+# pre_processing_data <- pre_processing_data %>%
+#   select(-c(1,2,19,46,48))
+
+# x <- preProcess(pre_processing_data, method = c("scale", "center", "knnImpute"))
+# pre_processing_data <- predict(x, newdata = pre_processing_data)
+
+imputed_data <- missForest(as.matrix(pre_processing_data[, -c(1,2,19,46,48)]), parallelize = 'variables')
+imputed_data <- as.data.frame(imputed_data$ximp)
+
+write_csv(imputed_data, "D:\\Northeastern courses\\DS 5110\\Project\\Data-Management-and-Processing-Project\\datasets\\final data\\imputed_data_without_corr.csv")
+```
+
+
+# Generating team stats for visualization
+```{r}
+complete_player_team_stats_viz <- complete_player_team_stats[,c(18,48:ncol(complete_player_team_stats))]%>%
+  rename("TEAM" = "TEAM.y") 
+
+complete_player_team_stats_vis <- complete_player_team_stats_vis %>%
+  group_by('TEAM') %>%
+  summarise(Salary = sum(Salary, na.rm = TRUE)) %>%
+  ungroup()
+
+team_stats_viz <- complete_player_team_stats_viz %>%
+  select(-InflatedSalary,-YEAR) %>%
+  group_by(TEAM) %>%
+  summarize(team_GP = mean(team_GP),
+            team_W = mean(team_W),
+            team_L = mean(team_W),
+            `team_WIN%` = mean(`team_WIN%`),
+            team_MIN = mean(team_MIN),
+            team_PTS = mean(team_PTS),
+            team_FGM = mean(team_FGM),
+            team_FGA = mean(team_FGA),
+            `team_FG%` = mean(`team_FG%`),
+            `team_3PM` = mean(`team_3PM`),
+            `team_3PA` = mean(`team_3PA`),
+            `team_3P%` = mean(`team_3P%`),
+            `team_FTM` = mean(`team_FTM`),
+            `team_FTA` = mean(`team_FTA`),
+            `team_FT%` = mean(`team_FT%`),
+            `team_OREB` = mean(`team_OREB`),
+            `team_DREB` = mean(`team_DREB`),
+            `team_REB` = mean(`team_REB`),
+            `team_AST` = mean(`team_AST`),
+            `team_TOV` = mean(`team_TOV`),
+            `team_STL` = mean(`team_STL`),
+            `team_BLK` = mean(`team_BLK`),
+            `team_BLKA` = mean(`team_BLKA`),
+            `team_PF` = mean(`team_PF`),
+            `team_PFD` = mean(`team_PFD`),
+            `team_+/-` = mean(`team_+/-`),
+            `Salary` = mean(`Salary`,na.rm = TRUE)
+            ) %>%
+  drop_na()
+
+write_csv(team_stats_viz,"team_stats_viz.csv")
+
+```
+
+
+
+```{r}
+
+dim(imputed_data)
+colnames(imputed_data)
+summary(pre_processing_data$Salary, na.rm = TRUE)
+summary(imputed_data$Salary)
+
+```
+
+# Removing near zero variance variables
+```{r}
+nzv1 <- nearZeroVar(complete_player_team_stats)
+pre_processing_data_team <- complete_player_team_stats[, -nzv] %>%
+  mutate(index = 1:nrow(complete_player_team_stats))
+
+
+```
+
+
+#### Identifying Correlated Predictors with cutoff = 60
+```{r eval= FALSE}
+
+#dropping charcter data and Position as it doesnot matter
+# pre_processing_data <- pre_processing_data[,-c(1,2,19)]
+descrCor <-  cor(x = imputed_data)
+summary(descrCor[upper.tri(descrCor)])
+
+#removing columns with cor > 0.75
+highlyCorDescr <- findCorrelation(descrCor, cutoff = 0.60)
+corr_imputed_data <- imputed_data[,c(highlyCorDescr,43,44)]
+
+corr_imputed_data_with_position <- pre_processing_data %>%
+  select(Position,index,PIE,YEAR,AGE,PLAYER) %>%
+  left_join(corr_imputed_data ,by = c("index" = "index"))
+
+#changed summary shows highes cor = 0.7
+descrCor2 <- cor(x = corr_imputed_data)
+summary(descrCor2[upper.tri(descrCor2)])
+```
+
+# Correlation Matrics
+```{r}
+
+library(ellipse)
+library(RColorBrewer)
+library(GGally)
+
+
+my_colors <- brewer.pal(5, "Spectral")
+my_colors <- colorRampPalette(my_colors)(100)
+
+
+cor_train <- corr_imputed_data %>%
+  select(-Position,-PLAYER, -index) %>%
+  cor(.)
+
+cor_train_position <- corr_imputed_data_with_position %>%
+  select(-Position,-PLAYER, -index)
+
+cor_train_c <- corr_imputed_data_with_position %>%
+  filter(Position == "Center") %>%
+  select(-Position,-PLAYER)
+
+cor_train_f <- corr_imputed_data_with_position %>%
+  filter(Position == "Forward") %>%
+  select(-Position,-PLAYER) 
+
+cor_train_g <- corr_imputed_data_with_position %>%
+  filter(Position == "Guard") %>%
+  select(-Position,-PLAYER)
+
+plotcorr(cor_train , col=my_colors[cor_train*50+50] , mar=c(1,1,1,1), type = "upper")
+
+ggcorr(cor_train_position, method = c("everything", "pearson")) 
+
+
+
+corrplot(cor_train,type = "upper",method="circle")
+corrplot(cor_train_c,type = "upper",method="circle")
+corrplot(cor_train_f,type = "upper",method="circle")
+corrplot(cor_train_g,type = "upper",method="circle")
+
+```
+
+
+#### Finding linear combinations
+```{r}
+comboInfo <- findLinearCombos(as.matrix(corr_imputed_data))
+comboInfo
+
+#no linear combos exist
+```
+
+
+```{r}
+write_csv(corr_imputed_data_with_position, "cleaned_preprocessed_player_data.csv")
+```
+
+# Removing Overlapping Data
+```{r}
+
+if_exists <- function(i,j)
+  {
+  x <- corr_imputed_data_with_position %>%
+      filter(PLAYER == i, YEAR == j) %>%
+      group_by(Position) %>%
+      summarize(count = n())
+    
+    if(nrow(x) > 1){
+      return(as.character(x[which.max(x$count),1]))
+    }
+  
+}
+
+player_name <- unique(data$PLAYER)
+year <- unique(data$YEAR)
+vals <- data.frame()
+
+for (i in player_name) {
+  for (j in year) {
+    if (i %in% corr_imputed_data_with_position$PLAYER && j %in% corr_imputed_data_with_position$YEAR)
+      {
+      temp <- if_exists(i,j)
+      if (!is.null(temp)){
+      #   print(i)
+      # print(j)
+      # print(temp)
+      # vals <- data.frame("PLAYER" = i,
+      #                    "YEAR" = j,
+      #                    "Position" = temp)
+        vals <- rbind(vals,corr_imputed_data_with_position %>%
+      filter(PLAYER == i, YEAR == j, Position!=temp))
+      }
+    }
+  }
+}
+
+vals <- as.data.frame(vals)
+corr_imputed_data_with_position_nonoverlapping <- corr_imputed_data_with_position %>%
+anti_join(vals, by = c("PLAYER" = "PLAYER", "YEAR" = "YEAR", "Position" = "Position"))
+
+
+```
+
+```{r}
+write_csv(corr_imputed_data_with_position_nonoverlapping, "cleaned_preprocessed_player_data_nonovrlp.csv")
+write_csv(vals, "cleaned_preprocessed_player_data__ovrlp.csv")
+
+```
+
+
+
